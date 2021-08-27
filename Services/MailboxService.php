@@ -208,52 +208,62 @@ class MailboxService
             if (empty($criteriaValue)) {
                 continue;
             }
+	    $threadAdded = false;
+            if($criteria=='subject'){
+                $ticketId =  substr($criteriaValue, strrpos($criteriaValue, '#' )+1)."\n";
+                $ticket = $ticketRepository->findOneById($ticketId);
+                if (!empty($ticket)) {
+                    $threadAdded = true;
+                    return $ticket;
+                } 
+            }
+            if(!$threadAdded){
+		    switch ($criteria) {
+			case 'messageId':
+			    // Search Criteria 1: Find ticket by unique message id
+			    $ticket = $ticketRepository->findOneByReferenceIds($criteriaValue);
 
-            switch ($criteria) {
-                case 'messageId':
-                    // Search Criteria 1: Find ticket by unique message id
-                    $ticket = $ticketRepository->findOneByReferenceIds($criteriaValue);
+			    if (!empty($ticket)) {
+			        return $ticket;
+			    } else {
+			        $thread = $threadRepository->findOneByMessageId($criteriaValue);
+		
+			        if (!empty($thread)) {
+			            return $thread->getTicket();
+			        }
+			    }
+			    break;
+			case 'inReplyTo':
+			    // Search Criteria 2: Find ticket based on in-reply-to reference id
+			    $ticket = $ticketRepository->findOneByReferenceIds($criteriaValue);
 
-                    if (!empty($ticket)) {
-                        return $ticket;
-                    } else {
-                        $thread = $threadRepository->findOneByMessageId($criteriaValue);
-        
-                        if (!empty($thread)) {
-                            return $thread->getTicket();
-                        }
-                    }
-                    break;
-                case 'inReplyTo':
-                    // Search Criteria 2: Find ticket based on in-reply-to reference id
-                    $ticket = $ticketRepository->findOneByReferenceIds($criteriaValue);
+			    if (!empty($ticket)) {
+			        return $ticket;
+			    } else {
+			        $thread = $threadRepository->findOneByMessageId($criteriaValue);
+		
+			        if (!empty($thread)) {
+			            return $thread->getTicket();
+			        }
+			    }
+			    break;
+			case 'referenceIds':
+			    // Search Criteria 3: Find ticket based on reference id
+			    // Break references into ind. message id collection, and iteratively 
+			    // search for existing threads for these message ids.
+			    $referenceIds = explode(' ', $criteriaValue);
 
-                    if (!empty($ticket)) {
-                        return $ticket;
-                    } else {
-                        $thread = $threadRepository->findOneByMessageId($criteriaValue);
-        
-                        if (!empty($thread)) {
-                            return $thread->getTicket();
-                        }
-                    }
-                    break;
-                case 'referenceIds':
-                    // Search Criteria 3: Find ticket based on reference id
-                    // Break references into ind. message id collection, and iteratively 
-                    // search for existing threads for these message ids.
-                    $referenceIds = explode(' ', $criteriaValue);
+			    foreach ($referenceIds as $messageId) {
+			        $thread = $threadRepository->findOneByMessageId($messageId);
 
-                    foreach ($referenceIds as $messageId) {
-                        $thread = $threadRepository->findOneByMessageId($messageId);
-
-                        if (!empty($thread)) {
-                            return $thread->getTicket();
-                        }
-                    }
-                    break;
-                default:
-                    break;
+			        if (!empty($thread)) {
+			            return $thread->getTicket();
+			        }
+			    }
+			    break;
+			default:
+			    break;
+		    }
             }
         }
 
@@ -355,11 +365,11 @@ class MailboxService
 
         // Search for any existing tickets
         $ticket = $this->searchExistingTickets([
+            'subject' => $mailData['subject'],
             'messageId' => $mailData['messageId'],
             'inReplyTo' => $mailData['inReplyTo'],
             'referenceIds' => $mailData['referenceIds'],
             'from' => $mailData['from'],
-            'subject' => $mailData['subject'],
         ]);
 
         if (empty($ticket)) {
